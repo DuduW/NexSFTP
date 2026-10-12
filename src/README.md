@@ -4,7 +4,7 @@
 
 Python3 + FastAPI + asyncssh + HTML5。单进程双端口：SFTP 传输面（TCP 2022）+ 管理面/用户 Web 访问（80）。
 
-对应 PRD：`docs/PRD-SFTP服务器.md`（v1.2）。测试：三套 74 项全通过。
+对应 PRD：`docs/PRD-SFTP服务器.md`。GitHub：https://github.com/DuduW/NexSFTP
 
 ## 功能一览
 
@@ -27,7 +27,7 @@ venv\Scripts\python run.py
 ### Rocky Linux 9（生产）
 
 ```bash
-unzip sftpserver-v1.2-deploy.zip && cd sftpserver
+unzip sftpserver-v1.4-deploy-20261012.zip && cd sftpserver
 sudo bash deploy/deploy.sh        # 一键：专用账号 + venv + systemd + firewalld + XFS 检测
 sudo systemctl status sftpserver
 ```
