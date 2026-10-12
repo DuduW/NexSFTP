@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+asyncssh
+sqlalchemy
+bcrypt
+python-multipart
+httpx
+pymysql
+cryptography

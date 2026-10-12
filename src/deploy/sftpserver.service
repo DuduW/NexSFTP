@@ -1,0 +1,41 @@
+[Unit]
+Description=SFTP Server (asyncssh transfer plane + FastAPI admin plane)
+After=network.target
+
+[Service]
+Type=simple
+# --- 运行身份：非 root 专用账号 ---
+User=sftpserver
+Group=sftpserver
+WorkingDirectory=/opt/sftpserver
+Environment="PYTHONUNBUFFERED=1"
+Environment="SFTPSERVER_DATA=/var/lib/sftpserver"
+Environment="SFTPSERVER_FILES=/srv/sftp"
+Environment="SFTPSERVER_HOST=0.0.0.0"
+Environment="SFTPSERVER_PORT=2022"
+Environment="SFTPSERVER_ADMIN_PORT=80"
+# --- MySQL 8 后端（不设置则回退 SQLite）---
+Environment="SFTPSERVER_DB_URL=mysql+pymysql://sftpserver:Sftp%40194Test@127.0.0.1:3306/sftpserver?charset=utf8mb4"
+EnvironmentFile=-/etc/sftpserver.env
+# --- 绑定特权端口 80 所需的最小能力（非 root 运行） ---
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ExecStart=/opt/sftpserver/venv/bin/python run.py
+Restart=always
+RestartSec=3
+
+# --- 沙箱加固（PRD 7.1 I1：OS 层兜底） ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/sftpserver /srv/sftp
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
