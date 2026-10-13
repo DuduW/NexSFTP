@@ -3,7 +3,8 @@ import os
 # 生产部署可用环境变量覆盖（Rocky9 systemd 单元中注入）：
 #   SFTPSERVER_DATA   数据目录（默认项目 data/，生产建议 /var/lib/sftpserver）
 #   SFTPSERVER_FILES  用户文件根（生产建议 /srv/sftp）
-#   SFTPSERVER_HOST   监听地址（生产 0.0.0.0）
+#   SFTPSERVER_HOST    SFTP 传输面监听地址（生产 0.0.0.0）
+#   SFTPSERVER_ADMIN_HOST  管理面/API 监听地址（生产可 127.0.0.1 仅本地，配合 Nginx 反代）
 #   SFTPSERVER_PORT / SFTPSERVER_ADMIN_PORT
 DATA_DIR = os.environ.get("SFTPSERVER_DATA",
                           os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data'))
@@ -16,7 +17,8 @@ SECRET_PATH = os.path.join(DATA_DIR, 'secret.key')
 # 例: mysql+pymysql://sftpserver:pass@127.0.0.1:3306/sftpserver?charset=utf8mb4
 DB_URL = os.environ.get("SFTPSERVER_DB_URL", f"sqlite:///{DB_PATH}")
 
-HOST = os.environ.get("SFTPSERVER_HOST", '127.0.0.1')
+HOST = os.environ.get("SFTPSERVER_HOST", '0.0.0.0')                # SFTP 传输面
+ADMIN_HOST = os.environ.get("SFTPSERVER_ADMIN_HOST", HOST)          # 管理面（默认跟随，可单独收紧）
 SFTP_PORT = int(os.environ.get("SFTPSERVER_PORT", '2022'))
 ADMIN_PORT = int(os.environ.get("SFTPSERVER_ADMIN_PORT", '80'))
 

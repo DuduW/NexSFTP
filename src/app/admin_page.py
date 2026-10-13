@@ -132,7 +132,7 @@ padding:10px 22px;border-radius:10px;font-size:13px;display:none;z-index:99}
 <!-- ============ 主布局 ============ -->
 <div class="layout" id="app" style="display:none">
   <div class="sidebar">
-    <div class="logo">NexSFTP Admin<small>文件传输管理平台 v1.7</small></div>
+    <div class="logo">NexSFTP Admin<small>文件传输管理平台 v1.8</small></div>
     <div class="nav-item active" data-p="dashboard" onclick="go('dashboard')"><span class="ico">📊</span>仪表盘</div>
     <div class="nav-item" data-p="projects" onclick="go('projects')" id="nav-projects"><span class="ico">🗂️</span>项目管理</div>
     <div class="nav-item" data-p="accounts" onclick="go('accounts')"><span class="ico">👤</span>SFTP账号管理</div>

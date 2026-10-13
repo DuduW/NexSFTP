@@ -1,7 +1,7 @@
 import asyncio
 import sys
 
-from .config import ADMIN_PORT, HOST, SFTP_PORT
+from .config import ADMIN_HOST, ADMIN_PORT, HOST, SFTP_PORT
 from .db import init_db
 from .apiapp import build_app
 
@@ -32,7 +32,7 @@ async def main():
     from .sftp_server import start_sftp
     await start_sftp()          # SFTP 传输面 :2022
     import uvicorn
-    cfg = uvicorn.Config(build_app(), host=HOST, port=ADMIN_PORT, log_level="warning")
+    cfg = uvicorn.Config(build_app(), host=ADMIN_HOST, port=ADMIN_PORT, log_level="warning")
     server = uvicorn.Server(cfg)   # 管理面 + Web 文件访问（默认 :80）
     import asyncio
     recon = asyncio.ensure_future(usage_reconciler())

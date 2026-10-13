@@ -33,6 +33,15 @@ async def _ma(v):
     return v
 
 
+import re as _re
+_SFTP_NAME_BAD = _re.compile(r'[<>"\'\x00-\x1f\x7f]')
+
+
+def _safe_fs_name(name: str) -> bool:
+    """F3（SFTP 面）：新写入的文件/目录名禁止 HTML 元字符与控制字符（XSS 纵深防御）"""
+    return not _SFTP_NAME_BAD.search(name)
+
+
 def project_disabled(project_id):
     """项目停用 → 账号登录即时冻结（PRD §6.2）"""
     if not project_id:
@@ -164,6 +173,8 @@ class SftpFS(asyncssh.SFTPServer):
         return await _ma(super().lsetstat(path, attrs))
 
     async def mkdir(self, path: bytes, attrs):
+        if not _safe_fs_name(os.path.basename(self._local(path))):
+            raise asyncssh.SFTPNoSuchPath("文件名含非法字符")
         rel = self._rel(path)
         self._need(self.user.perm_write, "写入", rel)
         if rel in ("/", ""):
@@ -186,6 +197,8 @@ class SftpFS(asyncssh.SFTPServer):
         audit("sftp", self.username, "delete", rel)
 
     async def rename(self, oldpath: bytes, newpath: bytes):
+        if not _safe_fs_name(os.path.basename(self._local(newpath))):
+            raise asyncssh.SFTPNoSuchPath("新名称含非法字符")
         self._need(self.user.perm_rename, "改名", self._rel(oldpath))
         await _ma(super().rename(oldpath, newpath))
         audit("sftp", self.username, "rename",
@@ -237,6 +250,11 @@ class SftpFS(asyncssh.SFTPServer):
         local = self._local(path)
         if write_mode:
             self._need(self.user.perm_write, "写入", rel)
+            # F3（SFTP 面）：新建文件名校验（覆盖写旧文件不拦，已有名经 F1 转义无害）
+            if (pflags & FXF_CREAT) and not _safe_fs_name(os.path.basename(local)):
+                audit("sftp", self.username, "deny",
+                      f"{rel} 文件名含非法字符（< > \\\" ' 或控制字符）", result="deny")
+                raise asyncssh.SFTPNoSuchPath("文件名含非法字符")
             exists = os.path.isfile(local)
             base = 0 if (pflags & FXF_TRUNC or not exists) else os.path.getsize(local)
             is_new = not exists or bool(pflags & FXF_TRUNC)

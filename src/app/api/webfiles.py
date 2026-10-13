@@ -154,6 +154,15 @@ def web_index(token: str, request: Request, path: str = "/"):
     return _list_html(u, token, "/" + rel if rel else "/")
 
 
+import re as _re
+_FILENAME_BAD = _re.compile(r'[<>"\'\x00-\x1f\x7f]')
+
+
+def _safe_name(name: str) -> bool:
+    """F3 纵深防御：文件/目录名禁止 HTML 元字符与控制字符（XSS 投毒面收敛）"""
+    return not _FILENAME_BAD.search(name)
+
+
 _PAGE_CSS = """
 :root{--bg:#f5f5f7;--card:#fff;--primary:#0b3d62;--primary-light:#e8f0f7;--text:#1d1d1f;
 --text-sec:#6e6e73;--line:#e8e8ed;--green:#34a853;--red:#e5484d;--radius:16px}
@@ -229,10 +238,17 @@ def _list_html(u: SftpUser, token: str, path: str) -> HTMLResponse:
         up = f'<a class="up" href="/f/{token}/?path={quote(parent)}">⬆ 返回上级</a>'
 
     # 文件行（目录优先，其次按名称）
+    # XSS 修复（F1+F2）：文件名一律 HTML 实体转义后输出；文件名/路径移入 data-* 属性，
+    # 事件绑定改为 addEventListener，彻底移出内联 onclick（三处注入上下文全部消除）
+    from html import escape as _esc
+
+    def _esc_attr(t):
+        return _esc(t, quote=True)
+
     rows = []
     total_b = 0
     entries = sorted(os.listdir(real)) if os.path.isdir(real) else []
-    for name in sorted(entries, key=lambda n: (not os.path.isdir(os.path.join(real, n)), n.lower())):
+    for idx, name in enumerate(sorted(entries, key=lambda n: (not os.path.isdir(os.path.join(real, n)), n.lower()))):
         full = os.path.join(real, name)
         rel_path = "/" + (rel + "/" + name if rel else name)
         q = quote(rel_path)
@@ -241,19 +257,22 @@ def _list_html(u: SftpUser, token: str, path: str) -> HTMLResponse:
         total_b += sz
         size = "—" if is_dir else f"{sz:,} B"
         mtime = _time.strftime("%Y-%m-%d %H:%M", _time.localtime(os.path.getmtime(full)))
-        name_json = _json.dumps(name, ensure_ascii=False)
-        path_json = _json.dumps(rel_path, ensure_ascii=False)
+        # 属性上下文：data-* 值用属性转义（引号闭合防护）
+        name_attr = _esc_attr(name)
+        path_attr = _esc_attr(rel_path)
+        path_url = _esc_attr(q)  # URL 先 urlencode 再属性转义（href 上下文）
         if is_dir:
-            name_html = f'<a class="fname" href="/f/{token}/?path={q}">📁 {name}</a>'
+            name_html = (f'<a class="fname" href="/f/{token}/?path={path_url}">'
+                         f'📁 {_esc(name)}</a>')
         else:
-            name_html = f'<span class="fname">📄 {name}</span>'
+            name_html = f'<span class="fname">📄 {_esc(name)}</span>'
         acts = []
         if not is_dir:
-            acts.append(f'<button class="act" onclick="location.href=\'/f/{token}/download?path={q}\'">下载</button>')
+            acts.append(f'<button class="act" data-act="download" data-path="{path_url}">下载</button>')
         if u.perm_rename:
-            acts.append(f'<button class="act" onclick="doRename({path_json},{name_json})">改名</button>')
+            acts.append(f'<button class="act" data-act="rename" data-path="{path_attr}" data-name="{name_attr}">改名</button>')
         if u.perm_delete:
-            acts.append(f'<button class="act danger" onclick="doDelete({path_json},{name_json})">删除</button>')
+            acts.append(f'<button class="act danger" data-act="delete" data-path="{path_attr}" data-name="{name_attr}">删除</button>')
         rows.append(
             f'<tr><td>{name_html}</td><td class="num">{size}</td>'
             f'<td class="num">{mtime}</td>'
@@ -261,16 +280,16 @@ def _list_html(u: SftpUser, token: str, path: str) -> HTMLResponse:
 
     upload_btn = (
         f'<button class="btn pri" onclick="document.getElementById(\'uf\').click()">⬆ 上传到当前目录</button>'
-        f'<input id="uf" type="file" multiple hidden onchange="doUpload(this.files)">'
+        f'<input id="uf" type="file" multiple hidden>'
     ) if u.perm_write else ""
     body = "".join(rows) or \
         '<tr><td colspan="4" class="empty">空目录</td></tr>'
     cur_json = _json.dumps("/" + rel if rel else "/", ensure_ascii=False)
     tok_json = _json.dumps(token)
 
-    return HTMLResponse(f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
+    page = f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>我的文件 · {u.username}</title><style>{_PAGE_CSS}</style></head><body><div class="wrap">
+<title>我的文件 · {_esc(u.username)}</title><style>{_PAGE_CSS}</style></head><body><div class="wrap">
 <h1>我的文件</h1>
 <div class="sub">{u.username} · 加密路径访问 · 与 SFTP 共享权限与配额</div>
 <div class="card">
@@ -280,13 +299,12 @@ def _list_html(u: SftpUser, token: str, path: str) -> HTMLResponse:
   <table><thead><tr><th>名称</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead>
   <tbody>{body}</tbody></table>
   <div class="foot"><span>配额 {u.used_bytes or 0:,} / {u.quota_bytes or 0:,} B</span>
-  <a href="#" onclick="doLogout();return false">退出登录</a></div>
+  <a href="#" id="logoutLink">退出登录</a></div>
 </div></div>
 <script>
 const TOKEN={tok_json}, CUR={cur_json};
 async function doUpload(files){{
   if(!files.length)return;
-  const btn=event&&event.target; if(btn)btn.disabled=true;
   try{{
     for(const f of files){{
       const fd=new FormData();fd.append('file',f);
@@ -313,7 +331,26 @@ async function doLogout(){{
   await fetch('/web/logout',{{method:'POST'}});
   location.href='/web/login';
 }}
-</script></body></html>""")
+/* XSS 修复 F2：事件委托统一绑定（无内联 onclick，data-* 取参） */
+document.getElementById('uploadBtn')&&document.getElementById('uploadBtn')
+  .addEventListener('click',()=>document.getElementById('uf').click());
+document.getElementById('uf')&&document.getElementById('uf')
+  .addEventListener('change',function(){{doUpload(this.files)}});
+document.getElementById('logoutLink')&&document.getElementById('logoutLink')
+  .addEventListener('click',function(e){{e.preventDefault();doLogout();}});
+document.querySelector('table').addEventListener('click',function(e){{
+  const btn=e.target.closest('button[data-act]');if(!btn)return;
+  const p=btn.getAttribute('data-path'),n=btn.getAttribute('data-name');
+  if(btn.dataset.act==='download'){{location.href='/f/'+TOKEN+'/download?path='+p;}}
+  else if(btn.dataset.act==='rename'){{doRename(p,n);}}
+  else if(btn.dataset.act==='delete'){{doDelete(p,n);}}
+}});
+</script></body></html>"""
+    resp = HTMLResponse(page)
+    # F4：CSP 兜底 + MIME 嗅探防护（内联脚本已全部移除）
+    resp.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
 
 
 @router.get("/f/{token}/api/list")
@@ -361,6 +398,8 @@ async def web_upload(token: str, request: Request, file: UploadFile, path: str =
         real, rel = resolve(u.root_dir, path)
     except PathEscape:
         raise HTTPException(403, "路径越界")
+    if not _safe_name(file.filename or ""):
+        raise HTTPException(400, "文件名含非法字符（< > \" ' 或控制字符）")
     if not os.path.isdir(real):
         # Web 面新建子目录：目标目录不存在时自动级联创建（mkdir -p 语义）
         try:
@@ -446,6 +485,9 @@ def web_rename(token: str, request: Request, path: str, to: str):
     """Web 改名（PRD §3.3 W：列表/下载/上传/删除/改名）"""
     u = _auth_user(request, token)
     _check(u, "rename")
+    # F3：新名字段同白名单（防改名投毒）
+    if not _safe_name(to.rsplit("/", 1)[-1]):
+        raise HTTPException(400, "新名称含非法字符（< > \" ' 或控制字符）")
     try:
         real, rel = resolve(u.root_dir, path)
         new_real, new_rel = resolve(u.root_dir, to)
