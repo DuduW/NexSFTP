@@ -27,7 +27,7 @@ venv\Scripts\python run.py
 ### Rocky Linux 9（生产）
 
 ```bash
-unzip sftpserver-v1.6-deploy-20261013.zip && cd sftpserver
+unzip sftpserver-v1.7-deploy-20261013.zip && cd sftpserver
 sudo bash deploy/deploy.sh        # 一键：专用账号 + venv + systemd + firewalld + XFS 检测
 sudo systemctl status sftpserver
 ```

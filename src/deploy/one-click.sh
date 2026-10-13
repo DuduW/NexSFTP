@@ -7,6 +7,7 @@
 #   --db-user NAME     应用账户（默认 sftpserver）
 #   --admin-port N     管理面端口（默认 80）
 #   --sftp-port N      SFTP 传输面端口（默认 2022）
+#   --file-root PATH   用户数据根目录（默认 /srv/sftp；生产建议独立数据卷）
 #   --skip-mysql       跳过 MySQL 安装（已有自管 MySQL 时使用，仍会建库授权）
 #   --mirror URL       pip 镜像（默认阿里云）
 #
@@ -20,8 +21,9 @@
 set -euo pipefail
 
 # ---------- 参数 ----------
+die(){  echo -e "  \033[0;31m✗ $*\033[0m"; exit 1; }
 DB_PASS="" DB_NAME="sftpserver" DB_USER="sftpserver"
-ADMIN_PORT="80" SFTP_PORT="2022" SKIP_MYSQL=0
+ADMIN_PORT="80" SFTP_PORT="2022" FILE_ROOT="/srv/sftp" SKIP_MYSQL=0
 MIRROR="https://mirrors.aliyun.com/pypi/simple/"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,6 +32,7 @@ while [[ $# -gt 0 ]]; do
     --db-user)   DB_USER="$2"; shift 2 ;;
     --admin-port) ADMIN_PORT="$2"; shift 2 ;;
     --sftp-port) SFTP_PORT="$2"; shift 2 ;;
+    --file-root) FILE_ROOT="$2"; shift 2 ;;
     --skip-mysql) SKIP_MYSQL=1; shift ;;
     --mirror)    MIRROR="$2"; shift 2 ;;
     *) echo "未知参数: $1"; exit 1 ;;
@@ -38,8 +41,18 @@ done
 
 APP_DIR=/opt/sftpserver
 DATA_DIR=/var/lib/sftpserver
-FILE_ROOT=/srv/sftp
 SVC_USER=sftpserver
+
+# 自定义数据目录校验：绝对路径、不含 .. 与空格、不得为系统关键目录
+case "$FILE_ROOT" in
+  /*) ;;
+  *) die "--file-root 须为绝对路径（如 /data/sftp）" ;;
+esac
+[[ "$FILE_ROOT" == *..* || "$FILE_ROOT" == *" "* ]] && die "--file-root 不允许包含 .. 或空格"
+case "$FILE_ROOT" in
+  /|/bin|/boot|/dev|/etc|/lib|/proc|/root|/run|/sbin|/sys|/usr|/var|/opt|/srv|/home) 
+     die "--file-root 不能直接使用系统目录（$FILE_ROOT），请用其子目录（如 $FILE_ROOT/sftp）" ;;
+esac
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # deploy/ 上一级 = 项目根
 ENV_FILE=/etc/sftpserver.env
 

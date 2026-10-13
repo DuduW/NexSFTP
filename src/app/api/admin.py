@@ -447,6 +447,8 @@ def kick_session(sid: str, request: Request):
 def list_logs(request: Request, username: str = "", action: str = "",
               page: int = 1, size: int = 50):
     scope = scope_projects(request)
+    if scope is not None:
+        raise HTTPException(403, "审计日志仅平台管理员可见")
     with SessionLocal() as s:
         query = s.query(AuditLog)
         if scope is not None:
@@ -604,6 +606,8 @@ def export_logs(request: Request, username: str = "", action: str = "",
     import csv, io
     admin = require_admin(request)
     scope = scope_projects(request)
+    if scope is not None:
+        raise HTTPException(403, "审计日志仅平台管理员可见")
     with SessionLocal() as s:
         q = s.query(AuditLog).filter(AuditLog.ts >= security.utcnow() - _td(days=int(days)))
         if scope is not None:

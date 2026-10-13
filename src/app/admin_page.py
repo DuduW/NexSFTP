@@ -110,6 +110,8 @@ tr:hover td{background:#fafafc}
 .modal input:focus{border-color:var(--primary)}
 .modal .row{display:flex;gap:14px}.modal .row>div{flex:1}
 .chk{display:inline-flex;align-items:center;gap:5px;margin-right:14px;margin-top:8px;font-size:13px}
+.np-hint{font-size:11px;min-height:14px;margin:3px 0 2px}
+.np-ok{color:var(--green)} .np-err{color:var(--red)}
 .mfoot{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}
 #toast{position:fixed;top:18px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;
 padding:10px 22px;border-radius:10px;font-size:13px;display:none;z-index:99}
@@ -130,7 +132,7 @@ padding:10px 22px;border-radius:10px;font-size:13px;display:none;z-index:99}
 <!-- ============ 主布局 ============ -->
 <div class="layout" id="app" style="display:none">
   <div class="sidebar">
-    <div class="logo">NexSFTP Admin<small>文件传输管理平台 v1.6</small></div>
+    <div class="logo">NexSFTP Admin<small>文件传输管理平台 v1.7</small></div>
     <div class="nav-item active" data-p="dashboard" onclick="go('dashboard')"><span class="ico">📊</span>仪表盘</div>
     <div class="nav-item" data-p="projects" onclick="go('projects')" id="nav-projects"><span class="ico">🗂️</span>项目管理</div>
     <div class="nav-item" data-p="accounts" onclick="go('accounts')"><span class="ico">👤</span>SFTP账号管理</div>
@@ -241,6 +243,7 @@ function applyRole(){
   const notPlatform=isPA();
   hide("nav-projects",notPlatform);
   hide("nav-groups",notPlatform);       /* 后台账号管理 */
+  hide("nav-logs",notPlatform);         /* 审计日志：项目管理员不可见 */
   document.querySelector('[data-p="settings"]').style.display=notPlatform?"none":"";
 }
 /* ---------- 导航 ---------- */
@@ -316,7 +319,7 @@ async function renderProjects(){
   let list;
   try{list=await api("GET","/projects");}catch(e){pageEl("projects").innerHTML=`<div class="card empty">${esc(e.message)}</div>`;return;}
   PROJECTS=list;
-  const rows=list.map(p=>`<tr>
+  const rows=list.map(p=>`<tr ${p.enabled?"":'style="opacity:.55"'}>
     <td><b>${esc(p.name)}</b></td><td class="num">${esc(p.code)}</td>
     <td class="num">${p.user_count}</td>
     <td>${(p.admins||[]).map(a=>`<span class="badge b-blue">${esc(a)}</span>`).join(" ")||'<span style="color:var(--text-sec)">未分配</span>'}</td>
@@ -337,39 +340,99 @@ async function renderProjects(){
     </div>`;
 }
 function openProjCreate(){
-  modal(`<h3>新建项目</h3>
-    <label>项目名称<input id="np_n" placeholder="如：司法调证"></label>
-    <label>项目标识（小写/数字/-/_）<input id="np_c" placeholder="如：evidence"></label>
-    <label>备注<input id="np_r"></label>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-    <button class="btn" onclick="closeModal()">取消</button>
-    <button class="btn pri" onclick="submitProjCreate()">创建</button></div>`);
+  modal(`<h3>＋ 新建项目</h3>
+    <div class="row"><div><label>项目名称</label><input id="np_n" type="text" maxlength="64" placeholder="如：司法调证" oninput="npPreview()"></div>
+    <div><label>项目标识（小写/数字/-/_）</label>
+      <div style="display:flex;gap:6px"><input id="np_c" type="text" maxlength="32" placeholder="如：evidence" oninput="npNormalize(this);npPreview()" style="flex:1">
+      <button class="btn sm" style="height:38px" onclick="npFromName()" title="按名称自动生成">⚡</button></div></div></div>
+    <div id="np_n_hint" class="np-hint"></div>
+    <div id="np_c_hint" class="np-hint"></div>
+    <label>备注</label><input id="np_r" type="text" maxlength="200" placeholder="项目负责人 / 用途说明…（选填）">
+    <div style="background:var(--bg);border:1px solid var(--line);border-radius:12px;
+      padding:10px 14px;margin-top:14px;font-size:12px;color:var(--text-sec);line-height:1.8">
+      创建后：账号可归属本项目，并分配<b style="color:var(--primary)">项目管理员</b>（登录后仅见本项目账号/会话/审计）</div>
+    <div class="mfoot"><button class="btn" onclick="closeModal()">取消</button>
+    <button class="btn pri" id="np_submit" onclick="submitProjCreate()" disabled>创建</button></div>`);
+  setTimeout(()=>{if(typeof np_n!=="undefined"&&np_n)np_n.focus()},50);
 }
+function npNormalize(el){
+  const v=el.value.toLowerCase().replace(/[^a-z0-9_-]/g,"");
+  if(el.value!==v)el.value=v;
+  npValidate();
+}
+function npFromName(){
+  const map={"司":"sifa","法":""};
+  let v=np_n.value.trim().toLowerCase();
+  const py={"司法调证":"evidence","大数据":"bigdata","运维":"ops","备份":"backup","归档":"archive"};
+  let code=Object.keys(py).find(k=>v.includes(k));
+  np_c.value=code?py[code]:v.replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,32);
+  npValidate();
+}
+function npValidate(){
+  const name=np_n.value.trim(), code=np_c.value.trim();
+  let ok=true;
+  const nh=document.getElementById("np_n_hint"), ch=document.getElementById("np_c_hint");
+  if(!name){nh.textContent="";ok=false}
+  else if(name.length>64){nh.textContent="名称过长";nh.className="np-hint np-err";ok=false}
+  else{nh.textContent=name.length>=2?"✓ 名称可用":"",nh.className="np-hint np-ok"}
+  if(!code){ch.textContent="";ok=false}
+  else if(!/^[a-z0-9_-]{2,32}$/.test(code)){ch.textContent="仅小写字母/数字/-/_，2-32 位";ch.className="np-hint np-err";ok=false}
+  else{ch.textContent="✓ 标识合法";ch.className="np-hint np-ok"}
+  const btn=document.getElementById("np_submit");
+  if(btn)btn.disabled=!ok||!name||!code;
+}
+function npPreview(){npValidate()}
 async function submitProjCreate(){
-  try{await api("POST","/projects",{name:np_n.value,code:np_c.value,remark:np_r.value});}
-  catch(e){toast("创建失败："+e.message);return;}
+  const btn=document.getElementById("np_submit");
+  if(btn){btn.disabled=true;btn.textContent="创建中…"}
+  try{await api("POST","/projects",{name:np_n.value.trim(),code:np_c.value.trim(),remark:np_r.value.trim()});}
+  catch(e){toast("创建失败："+e.message);if(btn){btn.disabled=false;btn.textContent="创建项目"}return;}
   closeModal();toast("项目已创建");renderProjects();
 }
 function openProjEdit(id){
   const p=PROJECTS.find(x=>x.id===id);if(!p)return;
-  modal(`<h3>编辑项目 · ${esc(p.name)}</h3>
-    <label>项目名称<input id="ep_n" value="${esc(p.name)}"></label>
-    <label>备注<input id="ep_r" value="${esc(p.remark||"")}"></label>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-    <button class="btn" onclick="closeModal()">取消</button>
+  modal(`<h3>✏️ 编辑项目：${esc(p.name)}</h3>
+    <div style="font-size:12px;color:var(--text-sec);margin:-8px 0 10px">
+      标识 <b class="num" style="color:var(--primary)">${esc(p.code)}</b> 不可修改 · 当前 ${p.user_count} 个账号 ·
+      ${(p.admins||[]).length} 名项目管理员</div>
+    <label>项目名称</label><input id="ep_n" type="text" maxlength="64" value="${esc(p.name)}">
+    <label>备注</label><input id="ep_r" type="text" maxlength="200" value="${esc(p.remark||"")}" placeholder="项目负责人 / 用途说明…">
+    <div class="mfoot"><button class="btn" onclick="closeModal()">取消</button>
     <button class="btn pri" onclick="submitProjEdit(${p.id})">保存</button></div>`);
 }
 async function submitProjEdit(id){
-  try{await api("PATCH","/projects/"+id,{name:ep_n.value,remark:ep_r.value});}
+  if(!ep_n.value.trim()){toast("项目名称不能为空");return;}
+  try{await api("PATCH","/projects/"+id,{name:ep_n.value.trim(),remark:ep_r.value.trim()});}
   catch(e){toast("保存失败："+e.message);return;}
   closeModal();toast("已保存");renderProjects();
 }
 async function toggleProj(id,en){
   const p=PROJECTS.find(x=>x.id===id);if(!p)return;
-  if(en&&!confirm(`确定停用项目「${p.name}」？\n该项目 ${p.user_count} 个账号登录将即时冻结，在线会话立即断开。`))return;
-  try{await api("PATCH","/projects/"+id,{enabled:!en});}
-  catch(e){toast("操作失败："+e.message);return;}
-  toast(en?"项目已停用":"项目已启用");renderProjects();
+  if(!en){ /* 启用：无风险，直接执行 */
+    try{await api("PATCH","/projects/"+id,{enabled:true});}
+    catch(e){toast("操作失败："+e.message);return;}
+    toast("项目已启用");renderProjects();return;
+  }
+  /* 停用：危险操作，统一样式确认弹窗 */
+  modal(`<h3 style="color:var(--red)">⛔ 停用项目</h3>
+    <div style="background:#fdebec;border:1px solid #f5c6c8;border-radius:12px;padding:14px 16px;margin:4px 0 12px">
+      <div style="font-size:14px;color:var(--red);margin-bottom:8px">
+        确定停用 <b>${esc(p.name)}</b>（${esc(p.code)}）？</div>
+      <div style="font-size:12px;color:var(--text-sec);line-height:2">
+        · 该项目 <b class="num" style="color:var(--red)">${p.user_count}</b> 个账号登录将<b>即时冻结</b>（SFTP + Web）<br>
+        · 在线会话<b>立即强制断开</b>，传输中任务中断<br>
+        · 启用后即可恢复，账号数据不受影响</div>
+    </div>
+    <div class="mfoot"><button class="btn" onclick="closeModal()">取消</button>
+    <button class="btn" style="background:var(--red);color:#fff;border-color:var(--red)"
+      id="pj_stop_btn" onclick="doToggleProj(${p.id})">确认停用</button></div>`);
+}
+async function doToggleProj(id){
+  const btn=document.getElementById("pj_stop_btn");
+  if(btn){btn.disabled=true;btn.textContent="停用中…"}
+  try{await api("PATCH","/projects/"+id,{enabled:false});}
+  catch(e){toast("操作失败："+e.message);closeModal();return;}
+  closeModal();toast("项目已停用，账号登录已冻结");renderProjects();
 }
 async function openBindAdmins(pid){
   const p=PROJECTS.find(x=>x.id===pid);if(!p)return;
@@ -377,18 +440,39 @@ async function openBindAdmins(pid){
   const pas=ADM.filter(a=>a.role==="project_admin");
   if(!pas.length){toast("请先在后台账号管理创建 project_admin 角色账号");return;}
   const cur=new Set(p.admins||[]);
-  modal(`<h3>分配项目管理员 · ${esc(p.name)}</h3>
-    ${pas.map(a=>`<label class="chk"><input type="checkbox" value="${a.id}" ${cur.has(a.username)?"checked":""}> ${esc(a.username)}（${esc(a.remark||"")}）</label>`).join("")}
-    <div class="empty-hint">仅 project_admin 角色可被分配；保存为全量覆盖</div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
-    <button class="btn" onclick="closeModal()">取消</button>
-    <button class="btn pri" onclick="submitBind(${pid})">保存</button></div>`);
+  const items=pas.map(a=>`
+    <label class="pa-item" style="display:flex;align-items:center;gap:12px;padding:12px 14px;
+      border:1px solid var(--line);border-radius:12px;margin-bottom:8px;cursor:pointer;transition:all .15s">
+      <input type="checkbox" value="${a.id}" ${cur.has(a.username)?"checked":""}
+        onchange="this.closest('.pa-item').style.borderColor=this.checked?'var(--primary)':'var(--line)';
+                 this.closest('.pa-item').style.background=this.checked?'var(--primary-light)':'#fff'">
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px">
+          <b>${esc(a.username)}</b>
+          ${cur.has(a.username)?'<span class="badge b-green">当前</span>':""}
+          ${a.enabled?"":'<span class="badge b-red">已禁用</span>'}
+        </div>
+        <div style="font-size:12px;color:var(--text-sec);margin-top:3px">
+          ${esc(a.remark||"无备注")} · ${a.last_login_at?"最后登录 "+esc((a.last_login_at||"").replace("T"," ").slice(0,10)):"从未登录"}</div>
+      </div>
+      <span style="color:var(--primary);font-size:16px">${cur.has(a.username)?"✓":""}</span>
+    </label>`).join("");
+  modal(`<h3>👥 分配项目管理员 · ${esc(p.name)}</h3>
+    <div style="font-size:12px;color:var(--text-sec);margin:-8px 0 12px">
+      勾选的管理员登录后台后<b style="color:var(--primary)">仅可见/管理本项目</b>（账号·会话·审计）；当前已绑定 ${cur.size} 人</div>
+    <div style="max-height:300px;overflow:auto;padding-right:2px">${items}</div>
+    <div class="empty-hint">仅 project_admin 角色可被分配（去「后台账号管理」创建/调整角色）；保存为全量覆盖</div>
+    <div class="mfoot"><button class="btn" onclick="closeModal()">取消</button>
+    <button class="btn pri" onclick="submitBind(${pid})">保存分配</button></div>`);
 }
 async function submitBind(pid){
   const ids=[...document.querySelectorAll('#modal input:checked')].map(i=>+i.value);
+  const btns=document.querySelectorAll('#modal .mfoot .btn.pri');
+  const btn=btns[btns.length-1];
+  if(btn){btn.disabled=true;btn.textContent="保存中…"}
   try{await api("POST",`/projects/${pid}/admins`,{admin_ids:ids});}
-  catch(e){toast("保存失败："+e.message);return;}
-  closeModal();toast("已保存");renderProjects();
+  catch(e){toast("保存失败："+e.message);if(btn){btn.disabled=false;btn.textContent="保存分配"}return;}
+  closeModal();toast(ids.length?`已分配 ${ids.length} 名项目管理员`:"已清空项目管理员");renderProjects();
 }
 
 /* ---------- 账号管理 ---------- */
@@ -586,6 +670,16 @@ async function kick(sid){
 const ACTION_BADGE={login:"b-blue",logout:"b-gray",upload:"b-blue",download:"b-blue",delete:"b-red",
   mkdir:"b-gray",rename:"b-gray",deny:"b-red",quota_deny:"b-orange",manage:"b-gray",list:"b-gray",symlink:"b-gray"};
 async function renderLogs(){
+  /* 项目管理员：审计日志功能已禁用，直接显示禁用态（不发起请求） */
+  if(isPA()){
+    pageEl("logs").innerHTML=`
+    <div class="card" style="text-align:center;padding:56px 20px">
+      <div style="font-size:40px;margin-bottom:14px">🔇</div>
+      <div style="font-size:16px;font-weight:600;color:var(--text-sec);margin-bottom:8px">日志已禁用</div>
+      <div style="font-size:12px;color:var(--text-sec)">审计日志仅平台管理员可见，如有需要请联系平台管理员</div>
+    </div>`;
+    return;
+  }
   pageEl("logs").innerHTML=`
     <div class="card">
       <div class="toolbar">
@@ -655,7 +749,9 @@ async function groupsAdminTab(){
   window._lastAdmins=ADM;
   const rows=ADM.map(a=>{
     const st=a.enabled?'<span class="badge b-green">🟢 启用</span>':'<span class="badge b-red">🔴 禁用</span>';
-    const role=a.role==="super_admin"?'<span class="badge b-blue">超级管理员</span>':'<span class="badge b-gray">管理员</span>';
+    const role=a.role==="super_admin"?'<span class="badge b-blue">超级管理员</span>'
+      :a.role==="project_admin"?'<span class="badge b-orange">项目管理员</span>'
+      :'<span class="badge b-gray">管理员</span>';
     return `<tr><td><b>${esc(a.username)}</b></td><td>${role}</td><td>${st}</td>
       <td class="num">${(a.last_login_at||"-").replace("T"," ").slice(0,16)}</td>
       <td>${esc(a.remark||"")}</td>
@@ -669,42 +765,129 @@ async function groupsAdminTab(){
     <div class="empty-hint">后台管理员仅可登录管理后台（/admin），无法登录 SFTP 传输面与 Web 文件访问；SFTP/Web 账号请在「SFTP账号管理」页维护。管理员增删改仅超级管理员可操作。</div>`;
 }
 function openAdminCreate(){
-  modal(`<h3>新建管理员</h3>
-    <label>用户名<input id="na_u" placeholder="小写字母/数字/下划线"></label>
-    <label>初始密码<input id="na_p" type="password" placeholder="≥8位，含字母+数字"></label>
-    <label>角色<select id="na_r"><option value="admin">管理员（仅后台管理）</option><option value="super_admin">超级管理员（可管理用户组）</option></select></label>
-    <label>备注<input id="na_m" placeholder="选填"></label>
-    <div style="display:flex;gap:10px;margin-top:16px"><button class="btn pri" onclick="submitAdminCreate()">创建</button><button class="btn" onclick="closeModal()">取消</button></div>`);
+  modal(`<h3>＋ 新建管理员</h3>
+    <div class="row"><div><label>用户名（小写字母/数字/下划线）</label><input id="na_u" type="text" maxlength="32" oninput="naNormalize(this);naValidate()"></div>
+    <div><label>初始密码（≥8位，含字母数字）</label>
+      <div style="display:flex;gap:6px"><input id="na_p" type="password" oninput="naPwd()" style="flex:1">
+      <button class="btn sm" style="height:38px" onclick="naGenPwd()" title="随机生成">🎲</button>
+      <button class="btn sm" style="height:38px" onclick="naEye(this)" title="显示/隐藏">👁</button></div></div></div>
+    <div style="display:flex;gap:6px;margin-top:5px;margin-bottom:2px">
+      <div style="flex:1;height:4px;border-radius:2px;background:#eee" id="na_bar1"></div>
+      <div style="flex:1;height:4px;border-radius:2px;background:#eee" id="na_bar2"></div>
+      <div style="flex:1;height:4px;border-radius:2px;background:#eee" id="na_bar3"></div>
+    </div>
+    <div id="na_p_hint" class="np-hint"></div>
+    <div id="na_u_hint" class="np-hint"></div>
+    <label>角色</label>
+    <select id="na_r" onchange="naValidate()" style="width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 12px;font-size:13px;background:#fff">
+      <option value="admin">平台管理员（仅后台管理）</option>
+      <option value="project_admin">项目管理员（创建后到「项目管理」分配）</option>
+      <option value="super_admin">超级管理员（全部权限）</option>
+    </select>
+    <label>备注</label><input id="na_m" type="text" maxlength="200" placeholder="选填">
+    <div class="mfoot"><button class="btn" onclick="closeModal()">取消</button>
+    <button class="btn pri" id="na_submit" onclick="submitAdminCreate()" disabled>创建</button></div>`);
+}
+function naNormalize(el){
+  const v=el.value.toLowerCase().replace(/[^a-z0-9_]/g,"");
+  if(el.value!==v)el.value=v;
+  naValidate();
+}
+function naGenPwd(){
+  const cs="abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  let p=Array.from({length:14},()=>cs[Math.random()*cs.length|0]).join("")+"!7";
+  na_p.value=p;na_p.type="text";naPwd();
+}
+function naEye(btn){
+  na_p.type=na_p.type==="password"?"text":"password";
+  btn.style.borderColor=na_p.type==="text"?"var(--primary)":"";
+}
+function naPwd(){
+  const v=na_p.value;let score=0;
+  if(v.length>=8)score++;
+  if(/[a-zA-Z]/.test(v)&&/\d/.test(v))score++;
+  if(v.length>=12||/[^a-zA-Z0-9]/.test(v))score++;
+  const colors=["#eee","var(--red)","var(--orange)","var(--green)"];
+  const labels=["","弱 · 不满足要求","中 · 满足最低要求","强 · 推荐设置"];
+  for(let i=1;i<=3;i++){
+    const b=document.getElementById("na_bar"+i);
+    if(b)b.style.background=i<=score?colors[score]:"#eee";
+  }
+  const h=document.getElementById("na_p_hint");
+  if(h){h.textContent=v?labels[score]:"";h.className="np-hint "+(score>=2?"np-ok":"np-err")}
+  naValidate();
+}
+function naValidate(){
+  const u=na_u.value.trim(), p=na_p.value, role=na_r.value;
+  let ok=true;
+  const uh=document.getElementById("na_u_hint");
+  if(!u){uh.textContent="";ok=false}
+  else if(!/^[a-z0-9_]{2,32}$/.test(u)){uh.textContent="仅小写字母/数字/下划线，2-32 位";uh.className="np-hint np-err";ok=false}
+  else if(["admin","root","system"].includes(u)){uh.textContent="保留用户名不可用";uh.className="np-hint np-err";ok=false}
+  else{uh.textContent="✓ 用户名可用";uh.className="np-hint np-ok"}
+  if(p.length<8||!(/[a-zA-Z]/.test(p)&&/\d/.test(p)))ok=false;
+  const btn=document.getElementById("na_submit");
+  if(btn)btn.disabled=!ok;
 }
 async function submitAdminCreate(){
-  try{await api("POST","/admins",{username:na_u.value,password:na_p.value,role:na_r.value,remark:na_m.value});}
-  catch(e){toast("创建失败："+e.message);return;}
-  closeModal();toast("管理员已创建");renderGroups();
+  const btn=document.getElementById("na_submit");
+  if(btn){btn.disabled=true;btn.textContent="创建中…"}
+  try{await api("POST","/admins",{username:na_u.value.trim(),password:na_p.value,role:na_r.value,remark:na_m.value.trim()});}
+  catch(e){toast("创建失败："+e.message);if(btn){btn.disabled=false;btn.textContent="创建管理员"}return;}
+  closeModal();toast("管理员已创建"+(na_r.value==="project_admin"?"（请到项目管理分配项目）":""));renderGroups();
 }
 function openAdminEdit(id){
   const a=window._lastAdmins&&window._lastAdmins.find(x=>x.id===id);
   if(!a){toast("数据过期，请刷新");return;}
-  modal(`<h3>编辑管理员 · ${esc(a.username)}</h3>
-    <label>角色<select id="ea_r">
-      <option value="admin" ${a.role!=="super_admin"?"selected":""}>管理员（仅后台管理）</option>
-      <option value="super_admin" ${a.role==="super_admin"?"selected":""}>超级管理员</option></select></label>
+  modal(`<h3>✏️ 编辑管理员：${esc(a.username)}</h3>
+    <div style="font-size:12px;color:var(--text-sec);margin:-8px 0 10px">${a.last_login_at?`最后登录 ${esc((a.last_login_at||"").replace("T"," ").slice(0,16))}`:"尚未登录过"}</div>
+    <label>角色</label>
+    <select id="ea_r" style="width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 12px;font-size:13px;background:#fff">
+      <option value="admin" ${a.role==="admin"?"selected":""}>平台管理员（仅后台管理）</option>
+      <option value="project_admin" ${a.role==="project_admin"?"selected":""}>项目管理员（分配见「项目管理」）</option>
+      <option value="super_admin" ${a.role==="super_admin"?"selected":""}>超级管理员（全部权限）</option>
+    </select>
     <label class="chk"><input type="checkbox" id="ea_e" ${a.enabled?"checked":""}>启用</label>
-    <label>备注<input id="ea_m" value="${esc(a.remark||"")}"></label>
-    <div style="display:flex;gap:10px;margin-top:16px"><button class="btn pri" onclick="submitAdminEdit(${a.id})">保存</button><button class="btn" onclick="closeModal()">取消</button></div>`);
+    <label>备注</label><input id="ea_m" type="text" maxlength="200" value="${esc(a.remark||"")}">
+    <div class="mfoot"><button class="btn" onclick="closeModal()">取消</button>
+    <button class="btn pri" onclick="submitAdminEdit(${a.id})">保存</button></div>`);
 }
 async function submitAdminEdit(id){
-  try{await api("PATCH","/admins/"+id,{role:ea_r.value,enabled:ea_e.checked,remark:ea_m.value});}
+  try{await api("PATCH","/admins/"+id,{role:ea_r.value,enabled:ea_e.checked,remark:ea_m.value.trim()});}
   catch(e){toast("保存失败："+e.message);return;}
   closeModal();toast("已保存");renderGroups();
 }
 function openAdminReset(id,name){
-  modal(`<h3>重置密码 · ${esc(name)}</h3>
-    <label>新密码<input id="rp_p" type="password" placeholder="≥8位，含字母+数字"></label>
-    <div style="display:flex;gap:10px;margin-top:16px"><button class="btn pri" onclick="submitAdminReset(${id})">重置</button><button class="btn" onclick="closeModal()">取消</button></div>`);
+  modal(`<h3>🔑 重置密码：${esc(name)}</h3>
+    <label>新密码（≥8位，含字母数字）</label>
+    <div style="display:flex;gap:6px"><input id="rp_p" type="password" oninput="rpPwd()" style="flex:1">
+    <button class="btn sm" style="height:38px" onclick="rpGenPwd()" title="随机生成">🎲</button>
+    <button class="btn sm" style="height:38px" onclick="rpEye(this)" title="显示/隐藏">👁</button></div>
+    <div id="rp_hint" class="np-hint"></div>
+    <div class="mfoot"><button class="btn" onclick="closeModal()">取消</button>
+    <button class="btn pri" id="rp_submit" onclick="submitAdminReset(${id})" disabled>重置</button></div>`);
+}
+function rpGenPwd(){
+  const cs="abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  rp_p.value=Array.from({length:14},()=>cs[Math.random()*cs.length|0]).join("")+"!7";
+  rp_p.type="text";rpPwd();
+}
+function rpEye(btn){
+  rp_p.type=rp_p.type==="password"?"text":"password";
+  btn.style.borderColor=rp_p.type==="text"?"var(--primary)":"";
+}
+function rpPwd(){
+  const v=rp_p.value, ok=v.length>=8&&(/[a-zA-Z]/.test(v)&&/\d/.test(v));
+  const h=document.getElementById("rp_hint");
+  if(h){h.textContent=v?(ok?"✓ 密码符合要求":"须≥8位且同时含字母和数字"):"";h.className="np-hint "+(ok?"np-ok":"np-err")}
+  const btn=document.getElementById("rp_submit");
+  if(btn)btn.disabled=!ok;
 }
 async function submitAdminReset(id){
+  const btn=document.getElementById("rp_submit");
+  if(btn){btn.disabled=true;btn.textContent="重置中…"}
   try{await api("POST",`/admins/${id}/reset-pass`,{password:rp_p.value});}
-  catch(e){toast("重置失败："+e.message);return;}
+  catch(e){toast("重置失败："+e.message);if(btn){btn.disabled=false;btn.textContent="确认重置"}return;}
   closeModal();toast("密码已重置");renderGroups();
 }
 async function delAdmin(id,name){
