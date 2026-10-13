@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NexSFTP · 项目管理 Demo（v0.1 评审稿）</title>
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--primary:#0b3d62;--primary-light:#e8f0f7;--text:#1d1d1f;
+--text-sec:#6e6e73;--line:#e8e8ed;--green:#34a853;--red:#e5484d;--orange:#f5a623;--blue:#2f6fed;--radius:16px}
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif}
+body{background:var(--bg);color:var(--text);font-size:14px}
+h1,h2,h3,.num{font-family:'Noto Serif SC','Songti SC',serif}
+.wrap{display:flex;min-height:100vh}
+.sidebar{width:220px;background:var(--card);border-right:1px solid var(--line);padding:24px 12px;position:fixed;top:0;bottom:0}
+.logo{font-family:'Noto Serif SC',serif;font-size:19px;font-weight:700;color:var(--primary);padding:0 12px 4px}
+.logo small{display:block;font-family:'Noto Sans SC';font-size:11px;font-weight:400;color:var(--text-sec);margin-top:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:10px;cursor:pointer;color:var(--text-sec);margin-bottom:4px}
+.nav-item:hover{background:var(--bg)}
+.nav-item.active{background:var(--primary-light);color:var(--primary);font-weight:600}
+.nav-item.locked{opacity:.35;cursor:not-allowed;text-decoration:line-through}
+.main{margin-left:220px;flex:1;padding:28px 32px}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
+.topbar h2{font-size:22px}
+.role-switch{display:flex;gap:8px;align-items:center;background:var(--card);padding:8px 12px;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.role-switch .lab{font-size:12px;color:var(--text-sec)}
+.rb{padding:7px 14px;border-radius:9px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:13px;color:var(--text)}
+.rb.on{background:var(--primary);color:#fff;border-color:var(--primary)}
+.badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;white-space:nowrap}
+.b-green{background:#e6f4ea;color:var(--green)}.b-red{background:#fdebec;color:var(--red)}
+.b-gray{background:#f0f0f3;color:var(--text-sec)}.b-blue{background:#e8f0fe;color:var(--blue)}
+.b-orange{background:#fdf3e0;color:#c77c0a}
+.card{background:var(--card);border-radius:var(--radius);padding:22px;box-shadow:0 1px 3px rgba(0,0,0,.04);margin-bottom:16px}
+.card h3{font-size:15px;margin-bottom:14px}
+table{width:100%;border-collapse:collapse}
+th{font-size:12px;color:var(--text-sec);font-weight:500;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+td{padding:12px;border-bottom:1px solid var(--line);font-size:13px}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#fafafc}
+.btn{height:34px;padding:0 16px;border-radius:9px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:13px;margin-right:6px}
+.btn:hover{border-color:var(--primary);color:var(--primary)}
+.btn.pri{background:var(--primary);color:#fff;border-color:var(--primary)}
+.btn.dis{opacity:.4;cursor:not-allowed}
+.hint{font-size:12px;color:var(--text-sec);margin-top:10px;line-height:1.8}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.kv{display:flex;gap:8px;font-size:13px;padding:6px 0}
+.kv b{color:var(--primary);min-width:110px}
+.toast{position:fixed;top:18px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;padding:10px 22px;border-radius:10px;font-size:13px;display:none;z-index:99}
+.dialog-mask{position:fixed;inset:0;background:rgba(15,30,45,.4);display:none;align-items:center;justify-content:center;z-index:20}
+.dialog{background:#fff;border-radius:16px;padding:26px 28px;width:460px}
+.dialog h3{color:var(--primary);font-size:17px;margin-bottom:14px}
+.dialog label{display:block;font-size:12px;color:var(--text-sec);margin:10px 0 5px}
+.dialog input,.dialog select{width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 12px;font-size:13px}
+</style></head><body>
+<div class="wrap">
+<aside class="sidebar">
+  <div class="logo">NexSFTP Admin<small>项目管理 · v0.1 Demo</small></div>
+  <div class="nav-item active" onclick="go('dash')">📊 仪表盘</div>
+  <div class="nav-item" id="nav-proj" onclick="go('proj')">🗂️ 项目管理</div>
+  <div class="nav-item" onclick="go('users')">👤 SFTP账号管理</div>
+  <div class="nav-item" id="nav-adm" onclick="go('adm')">👥 后台账号管理</div>
+  <div class="nav-item" onclick="go('sess')">🔗 会话监控</div>
+  <div class="nav-item" onclick="go('logs')">📋 审计日志</div>
+  <div class="nav-item" id="nav-set" onclick="toast('系统设置仅超级管理员可见')">⚙️ 系统设置</div>
+</aside>
+<main class="main">
+  <div class="topbar">
+    <h2 id="ptitle">仪表盘</h2>
+    <div class="role-switch"><span class="lab">视角切换：</span>
+      <button class="rb on" onclick="setRole('super')">超级管理员</button>
+      <button class="rb" onclick="setRole('padmin')">项目管理员·司法调证</button>
+      <button class="rb" onclick="setRole('padmin2')">项目管理员·大数据</button>
+    </div>
+  </div>
+  <div id="p-dash"></div><div id="p-proj"></div><div id="p-users"></div>
+  <div id="p-adm"></div><div id="p-sess"></div><div id="p-logs"></div>
+</main>
+</div>
+<div class="toast" id="toast"></div>
+<div class="dialog-mask" id="mask" onclick="if(event.target===this)closeD()"><div class="dialog" id="dlg"></div></div>
+
+<script>
+/* ============ 模拟数据 ============ */
+const PROJECTS=[
+ {id:1,name:"司法调证",code:"evidence",enabled:1,admins:["shijing"],users:14,sessions:3,used:"4.2 GB"},
+ {id:2,name:"大数据平台",code:"bigdata",enabled:1,admins:["shuju"],users:8,sessions:1,used:"18.6 GB"},
+ {id:3,name:"运维审计",code:"ops",enabled:1,admins:["shuju"],users:5,sessions:0,used:"0.8 GB"},
+];
+const USERS=[
+ {name:"aiwen",proj:"司法调证",perms:"RWDM",web:"开",quota:"10GB",used:"3.1GB",st:"🟢"},
+ {name:"xuyj",proj:"司法调证",perms:"R---",web:"开",quota:"5GB",used:"0.9GB",st:"🟢"},
+ {name:"zhengju1",proj:"司法调证",perms:"RW--",web:"关",quota:"20GB",used:"0.2GB",st:"🟢"},
+ {name:"bd_etl",proj:"大数据平台",perms:"RW--",web:"关",quota:"100GB",used:"12GB",st:"🟢"},
+ {name:"bd_report",proj:"大数据平台",perms:"R---",web:"开",quota:"10GB",used:"6.6GB",st:"🟢"},
+ {name:"ops_audit",proj:"运维审计",perms:"RWDM",web:"开",quota:"2GB",used:"0.8GB",st:"🟢"},
+ {name:"legacy_user",proj:"（未分配）",perms:"R---",web:"开",quota:"10GB",used:"0.1GB",st:"🟢"},
+];
+const SESS=[
+ {u:"aiwen",proj:"司法调证",ip:"192.168.30.115",t:"10:02:11"},
+ {u:"zhengju1",proj:"司法调证",ip:"192.168.30.119",t:"09:58:40"},
+ {u:"bd_etl",proj:"大数据平台",ip:"172.18.2.31",t:"08:12:05"},
+];
+const LOGS=[
+ {t:"10:08:45",u:"aiwen",a:"upload",d:"/evidence_tool_v3.exe (5.6MB)",r:"✅"},
+ {t:"10:05:12",u:"bd_etl",a:"upload",d:"/etl_20261013.csv (230MB)",r:"✅"},
+ {t:"09:59:03",u:"xuyj",a:"login",d:"SFTP 登录成功",r:"✅"},
+ {t:"09:47:20",u:"admin",a:"manage",d:"创建账号 zhengju1（项目：司法调证）",r:"✅"},
+];
+
+/* ============ 视角 ============ */
+let ROLE="super", MY=null;
+const ROLE_LABEL={super:"超级管理员",padmin:"项目管理员 · 司法调证",padmin2:"项目管理员 · 大数据平台"};
+function myProjects(){
+  if(ROLE==="super")return null;           // null=全部
+  return ROLE==="padmin"?["司法调证"]:["大数据平台","运维审计"];
+}
+function setRole(r){ROLE=r;MY=myProjects();
+  document.querySelectorAll(".rb").forEach(b=>b.classList.remove("on"));
+  event.target.classList.add("on");
+  // project_admin 隐藏导航
+  const hide=(r!=="super");
+  document.getElementById("nav-proj").classList.toggle("locked",hide);
+  document.getElementById("nav-adm").classList.toggle("locked",hide);
+  document.getElementById("nav-set").classList.toggle("locked",hide);
+  render();toast("已切换视角："+ROLE_LABEL[r]);}
+function vis(p){return MY===null||MY.includes(p)||(p==="（未分配）"&&false)}
+function users(){return USERS.filter(u=>MY===null||MY.includes(u.proj))}
+
+/* ============ 页面 ============ */
+function go(p){document.querySelectorAll(".main>div").forEach(x=>x.style.display="none");
+  document.getElementById("p-"+p).style.display="block";
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
+  event.target.closest(".nav-item").classList.add("active");
+  const titles={dash:"仪表盘",proj:"项目管理",users:"SFTP账号管理",adm:"后台账号管理",sess:"会话监控",logs:"审计日志"};
+  document.getElementById("ptitle").textContent=titles[p];
+  if(ROLE!=="super"&&["proj","adm"].includes(p)){toast("⚠️ 项目管理员无此页面权限");}}
+function badgeScope(){return MY?`<span class="badge b-blue">👁 项目视角：${MY.join(" / ")}</span>`:`<span class="badge b-green">全域视角</span>`}
+
+function render(){
+ // 仪表盘
+ const us=users();
+ document.getElementById("p-dash").innerHTML=`
+  <div style="display:flex;gap:10px;margin-bottom:16px">${badgeScope()}
+   ${MY?'<span class="badge b-orange">统计仅含本项目账号</span>':""}</div>
+  <div class="grid2"><div class="card"><h3>账号概览</h3>
+   <div class="kv"><b>账号总数</b><span class="num">${us.length}</span></div>
+   <div class="kv"><b>在线会话</b><span class="num">${SESS.filter(s=>MY===null||MY.includes(s.proj)).length}</span></div>
+   <div class="kv"><b>存储用量</b><span class="num">${MY?PROJECTS.filter(p=>MY.includes(p.name)).reduce((a,p)=>a+parseFloat(p.used),0).toFixed(1)+" GB":"23.6 GB（全局）"}</span></div></div>
+  <div class="card"><h3>权限说明（本 Demo 演示）</h3>
+   <div class="hint">· 切换右上角视角，观察列表/会话/审计随视角过滤<br>
+   · 项目管理员导航中 项目管理/后台账号/系统设置 被锁（划线）<br>
+   · 项目管理员创建账号时，项目下拉仅含本人项目（去本页操作试试）<br>
+   · 越权访问他人项目账号 → 服务端 404（Demo 用提示模拟）</div></div></div>`;
+
+ // 项目管理
+ document.getElementById("p-proj").innerHTML=`
+  <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+   <h3 style="margin:0">项目列表</h3><div><button class="btn pri" onclick="newProj()">＋ 新建项目</button></div></div>
+  <table><tr><th>项目</th><th>标识</th><th>账号数</th><th>项目管理员</th><th>状态</th><th>操作</th></tr>
+  ${PROJECTS.map(p=>`<tr><td><b>${p.name}</b></td><td class="num">${p.code}</td><td class="num">${p.users}</td>
+   <td>${p.admins.map(a=>`<span class="badge b-blue">${a}</span>`).join(" ")}</td>
+   <td>${p.enabled?'<span class="badge b-green">🟢 启用</span>':'<span class="badge b-red">🔴 停用</span>'}</td>
+   <td><button class="btn" onclick="toast('（演示）编辑 ${p.name}')">编辑</button>
+       <button class="btn" onclick="toast('（演示）弹窗：分配项目管理员（多选管理员）')">分配管理员</button>
+       <button class="btn" onclick="toast('（演示）停用后该项目全部账号登录即时冻结')">停用</button></td></tr>`).join("")}
+  </table><div class="hint">项目管理仅超级管理员可操作；平台管理员(admin)只读。</div></div>`;
+
+ // 账号管理
+ document.getElementById("p-users").innerHTML=`
+  <div class="card"><div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
+   <h3 style="margin:0">SFTP 账号</h3>
+   ${MY===null?'<select style="height:32px;border:1px solid var(--line);border-radius:8px;padding:0 8px"><option>全部项目</option><option>司法调证</option><option>大数据平台</option><option>运维审计</option><option>未分配</option></select>':""}
+   <div style="flex:1"></div><button class="btn pri" onclick="newUser()">＋ 新建账号</button></div>
+  <table><tr><th>用户名</th><th>项目</th><th>权限</th><th>Web</th><th>用量/配额</th><th>状态</th><th>操作</th></tr>
+  ${users().map(u=>`<tr><td><b>${u.name}</b></td><td>${u.proj==="（未分配）"?'<span class="badge b-gray">未分配</span>':`<span class="badge b-blue">${u.proj}</span>`}</td>
+   <td class="num">${u.perms}</td><td>${u.web}</td><td class="num">${u.used}/${u.quota}</td><td>${u.st}</td>
+   <td><button class="btn" onclick="toast('（演示）编辑 ${u.name}')">编辑</button>
+       <button class="btn dis" onclick="toast('❌ 越权：${u.name} 不在你管理的项目（服务端将返回 404）')">越权删除试试</button></td></tr>`).join("")}
+  </table><div class="hint">· 项目管理员：列表自动只显示本项目账号；「越权删除试试」按钮演示跨项目操作的 404 拦截（仅对列表外账号生效，本表已过滤）。<br>· 新建账号弹窗中的项目下拉 = 本人管理的项目。</div></div>`;
+
+ // 后台账号（super 视角）
+ document.getElementById("p-adm").innerHTML=ROLE==="super"?`
+  <div class="card"><h3>后台账号</h3>
+  <table><tr><th>用户名</th><th>角色</th><th>管辖项目</th><th>状态</th></tr>
+  <tr><td><b>admin</b></td><td><span class="badge b-blue">超级管理员</span></td><td>—</td><td>🟢</td></tr>
+  <tr><td><b>shuju</b></td><td><span class="badge b-orange">项目管理员</span></td><td>大数据平台 / 运维审计</td><td>🟢</td></tr>
+  <tr><td><b>shijing</b></td><td><span class="badge b-orange">项目管理员</span></td><td>司法调证</td><td>🟢</td></tr></table>
+  <div class="hint">角色分配在「项目管理 → 分配管理员」；一个项目管理员可管多个项目。</div></div>`:"";
+
+ // 会话
+ document.getElementById("p-sess").innerHTML=`
+  <div class="card">${badgeScope()}<h3>在线会话</h3>
+  <table><tr><th>用户</th><th>项目</th><th>来源 IP</th><th>登录时间</th><th>操作</th></tr>
+  ${SESS.filter(s=>MY===null||MY.includes(s.proj)).map(s=>`<tr><td><b>${s.u}</b></td><td><span class="badge b-blue">${s.proj}</span></td><td class="num">${s.ip}</td><td class="num">${s.t}</td>
+   <td><button class="btn" onclick="toast('（演示）强断 ${s.u}')">强断</button></td></tr>`).join("")||'<tr><td colspan=5 style="text-align:center;color:var(--text-sec)">本项目当前无在线会话</td></tr>'}
+  </table></div>`;
+
+ // 审计
+ document.getElementById("p-logs").innerHTML=`
+  <div class="card">${badgeScope()}<h3>审计日志（自动按项目过滤）</h3>
+  <table><tr><th>时间</th><th>用户</th><th>动作</th><th>对象/说明</th><th>结果</th></tr>
+  ${LOGS.filter(l=>MY===null||USERS.find(u=>u.name===l.u&&MY.includes(u.proj))).map(l=>`<tr><td class="num">${l.t}</td><td><b>${l.u}</b></td><td>${l.a}</td><td>${l.d}</td><td>${l.r}</td></tr>`).join("")||'<tr><td colspan=5 style="text-align:center;color:var(--text-sec)">无本项目相关记录</td></tr>'}
+  </table><div class="hint">· 管理操作（如 admin 创建账号）属平台级记录，项目管理员不可见。<br>· CSV 导出同样按项目过滤。</div></div>`;
+
+ go("dash");
+}
+
+/* ============ 弹窗 ============ */
+function newProj(){dlg(`<h3>新建项目</h3>
+ <label>项目名称<input id="np_n" placeholder="如：司法调证"></label>
+ <label>项目标识（小写）<input id="np_c" placeholder="如：evidence"></label>
+ <label>备注<input id="np_r"></label>
+ <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+ <button class="btn" onclick="closeD()">取消</button><button class="btn pri" onclick="toast('（演示）项目已创建（真实实现：POST /api/v1/projects）');closeD()">创建</button></div>`)}
+function newUser(){
+ const opts=MY?MY:["司法调证","大数据平台","运维审计"];
+ dlg(`<h3>新建 SFTP 账号</h3>
+ <label>用户名<input placeholder="小写字母/数字/下划线"></label>
+ <label>密码<input type="password" placeholder="≥8位，字母+数字"></label>
+ <label>所属项目<select>${opts.map(o=>`<option>${o}</option>`).join("")}</select></label>
+ <label class="hint" style="margin-top:2px">${MY?"· 项目管理员：下拉仅显示你管理的项目（服务端强校验，伪造请求 400）":"· 管理员可分配任意项目或留空（未分配）"}</label>
+ <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+ <button class="btn" onclick="closeD()">取消</button><button class="btn pri" onclick="toast('（演示）账号已创建并挂入所选项目');closeD()">创建</button></div>`)}
+function dlg(html){document.getElementById("dlg").innerHTML=html;document.getElementById("mask").style.display="flex"}
+function closeD(){document.getElementById("mask").style.display="none"}
+let tt;function toast(m){const t=document.getElementById("toast");t.textContent=m;t.style.display="block";clearTimeout(tt);tt=setTimeout(()=>t.style.display="none",2600)}
+render();
+</script></body></html>

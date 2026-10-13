@@ -13,7 +13,7 @@ def audit(src: str, username: str, action: str, detail: str = "",
             s.add(AuditLog(src=src, username=username or "-", action=action,
                            detail=detail[:1000], client_ip=client_ip or "-",
                            result=result, size_bytes=size_bytes or 0,
-                           ts=datetime.utcnow()))
+                           ts=datetime.now()))
             s.commit()
     except Exception:
         pass  # 审计失败不阻塞传输主流程；生产可加本地队列兜底

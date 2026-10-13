@@ -33,6 +33,17 @@ async def _ma(v):
     return v
 
 
+def project_disabled(project_id):
+    """项目停用 → 账号登录即时冻结（PRD §6.2）"""
+    if not project_id:
+        return False
+    from .models import Project
+    from .db import SessionLocal
+    with SessionLocal() as s:
+        p = s.get(Project, project_id)
+        return bool(p and not p.enabled)
+
+
 def get_user(username: str):
     with SessionLocal() as s:
         u = s.query(SftpUser).filter_by(username=username, deleted_at=None).first()
@@ -71,11 +82,12 @@ class QuotaFile(ThrottleFile):
     """写句柄：限速 + 实时拦截超出剩余配额的写入"""
 
     def __init__(self, inner, limit_end: int, username: str, rel: str,
-                 is_new: bool, rate: int = 0):
+                 is_new: bool, rate: int = 0, file_size_limit: int = 0):
         super().__init__(inner, rate, username, rel, "upload")
         self.limit_end = limit_end
         self.is_new = is_new
         self.max_end = 0
+        self.file_size_limit = file_size_limit or 0   # 单文件上限（0=不限），写入硬拦
 
     def close(self):
         self.inner.close()
@@ -253,7 +265,8 @@ class SftpFS(asyncssh.SFTPServer):
                 limit_end = base + (new_size or 0) + (1 << 40)
             inner = await _ma(super().open(path, pflags, attrs))
             return QuotaFile(inner, limit_end, self.username, rel, is_new,
-                             rate=getattr(self.user, "rate_up", 0) or 0)
+                             rate=getattr(self.user, "rate_up", 0) or 0,
+                             file_size_limit=getattr(self.user, "max_file_size", 0) or 0)
         else:
             self._need(self.user.perm_read, "读取", rel)
             if not os.path.exists(local):
@@ -270,6 +283,12 @@ class SftpFS(asyncssh.SFTPServer):
     async def write(self, file_obj, offset: int, data: bytes) -> int:
         if isinstance(file_obj, QuotaFile):
             end = offset + len(data)
+            # 单文件大小硬限制：基于实际写入进度（max_end 取历史+本次），防客户端不上报 size 绕过预检
+            if file_obj.file_size_limit and max(end, file_obj.max_end) > file_obj.file_size_limit:
+                audit("sftp", file_obj.username, "quota_deny",
+                      f"传输中断：{file_obj.rel} 写至 {max(end, file_obj.max_end):,} B "
+                      f"超单文件上限 {file_obj.file_size_limit:,} B", result="deny")
+                raise asyncssh.SFTPQuotaExceeded("file size limit exceeded")
             if end > file_obj.limit_end:
                 audit("sftp", file_obj.username, "quota_deny",
                       f"传输中断：{file_obj.rel} 写至 {end} 超出剩余配额", result="deny")
@@ -326,7 +345,8 @@ class SftpSSHServer(asyncssh.SSHServer):
         if self.conn:
             state.drop_session(self.conn)
         if self.username:
-            audit("sftp", self.username, "logout", "连接断开")
+            # 连接关闭审计：用登录时缓存的来源 IP（此时 peername 已不可得）
+            audit("sftp", self.username, "logout", "连接断开", getattr(self, "_ip", "-"))
 
     def begin_auth(self, username: str) -> bool:
         self.username = username
@@ -347,10 +367,12 @@ class SftpSSHServer(asyncssh.SSHServer):
             return False
         u = get_user(username)
         expired = bool(u and u.expires_at and str(u.expires_at) <= security_utcnow())
-        if not u or not u.enabled or expired or not verify_password(password, u.password_hash):
+        proj_disabled = project_disabled(u.project_id) if u else False
+        if not u or not u.enabled or expired or proj_disabled or not verify_password(password, u.password_hash):
             locked = state.record_fail(username)
             audit("sftp", username, "login",
-                  "认证失败" + ("（已触发锁定）" if locked else ""), ip, result="deny")
+                  "认证失败" + ("（项目已停用）" if proj_disabled else
+                               ("（已触发锁定）" if locked else "")), ip, result="deny")
             return False
         # M3：并发会话数限制（0 = 不限）
         max_sess = getattr(u, "max_sessions", 0) or 0
@@ -360,6 +382,7 @@ class SftpSSHServer(asyncssh.SSHServer):
             return False
         state.clear_fails(username)
         self.user = u
+        self._ip = ip   # 缓存会话来源 IP（断开时 peername 已不可得）
         self._sid = secrets.token_hex(8)
         state.add_session(self._sid, username, ip, self.conn)
         audit("sftp", username, "login", "SFTP 登录成功", ip)
@@ -368,7 +391,7 @@ class SftpSSHServer(asyncssh.SSHServer):
 
 def security_utcnow() -> str:
     from datetime import datetime
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 async def start_sftp():

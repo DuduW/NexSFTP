@@ -130,8 +130,9 @@ padding:10px 22px;border-radius:10px;font-size:13px;display:none;z-index:99}
 <!-- ============ 主布局 ============ -->
 <div class="layout" id="app" style="display:none">
   <div class="sidebar">
-    <div class="logo">NexSFTP Admin<small>文件传输管理平台 v1.4</small></div>
+    <div class="logo">NexSFTP Admin<small>文件传输管理平台 v1.6</small></div>
     <div class="nav-item active" data-p="dashboard" onclick="go('dashboard')"><span class="ico">📊</span>仪表盘</div>
+    <div class="nav-item" data-p="projects" onclick="go('projects')" id="nav-projects"><span class="ico">🗂️</span>项目管理</div>
     <div class="nav-item" data-p="accounts" onclick="go('accounts')"><span class="ico">👤</span>SFTP账号管理</div>
     <div class="nav-item" data-p="groups" onclick="go('groups')"><span class="ico">👥</span>后台账号管理</div>
     <div class="nav-item" data-p="sessions" onclick="go('sessions')"><span class="ico">🔗</span>会话监控</div>
@@ -145,10 +146,12 @@ padding:10px 22px;border-radius:10px;font-size:13px;display:none;z-index:99}
     <div class="topbar">
       <h2 id="pageTitle">仪表盘</h2>
       <div class="who"><div class="avatar">管</div><span id="wuser">admin</span>
+        <span class="badge b-blue" id="roleBadge" style="margin-right:6px"></span>
         <button class="btn sm" onclick="doLogout()">退出</button></div>
     </div>
 
     <div class="page active" id="p-dashboard"></div>
+    <div class="page" id="p-projects"></div>
     <div class="page" id="p-accounts"></div>
     <div class="page" id="p-groups"></div>
     <div class="page" id="p-sessions"></div>
@@ -179,6 +182,9 @@ padding:10px 22px;border-radius:10px;font-size:13px;display:none;z-index:99}
 <script>
 const API="/api/v1";
 let TOKEN=sessionStorage.getItem("st")||"";
+let ROLE=sessionStorage.getItem("role")||"admin";
+let MYPROJ=[];try{MYPROJ=JSON.parse(sessionStorage.getItem("myproj")||"[]")}catch(e){}
+const isSuper=()=>ROLE==="super_admin", isPA=()=>ROLE==="project_admin";
 let PAGE="dashboard",LOGQ={page:1,username:"",action:""},SESS_TIMER=null,USERS=[];
 
 /* ---------- 基础 ---------- */
@@ -208,6 +214,8 @@ async function doLogin(){
     const j=await r.json().catch(()=>({}));
     if(!r.ok){m.textContent=j.detail||"认证失败";return;}
     TOKEN=j.token;sessionStorage.setItem("st",TOKEN);
+    ROLE=j.role||"admin";sessionStorage.setItem("role",ROLE);
+    MYPROJ=j.projects||[];sessionStorage.setItem("myproj",JSON.stringify(MYPROJ));
     document.getElementById("wuser").textContent=lu.value.trim();
     showApp();
   }catch(e){m.textContent="网络错误："+e;}
@@ -219,11 +227,24 @@ function showLogin(){document.getElementById("loginPage").style.display="flex";
 async function showApp(){
   document.getElementById("loginPage").style.display="none";
   document.getElementById("app").style.display="flex";
+  applyRole();
+  if(!isPA()){try{PROJECTS=await api("GET","/projects")}catch(e){PROJECTS=[]}}
   go("dashboard");
 }
 
+/* ---------- 角色视角适配 ---------- */
+function applyRole(){
+  const rb=document.getElementById("roleBadge");
+  const lbl={super_admin:"超级管理员",admin:"平台管理员",project_admin:"项目管理员"+(MYPROJ.length?" · "+MYPROJ.join("/"):"")};
+  rb.textContent=lbl[ROLE]||ROLE;
+  const hide=(id,cond)=>{const el=document.getElementById(id);if(el)el.style.display=cond?"none":""};
+  const notPlatform=isPA();
+  hide("nav-projects",notPlatform);
+  hide("nav-groups",notPlatform);       /* 后台账号管理 */
+  document.querySelector('[data-p="settings"]').style.display=notPlatform?"none":"";
+}
 /* ---------- 导航 ---------- */
-const TITLES={dashboard:"仪表盘",accounts:"SFTP账号管理",groups:"后台账号管理",sessions:"会话监控",logs:"审计日志",
+const TITLES={dashboard:"仪表盘",projects:"项目管理",accounts:"SFTP账号管理",groups:"后台账号管理",sessions:"会话监控",logs:"审计日志",
   settings:"系统设置",webfiles:"用户 Web 文件访问（加密路径）"};
 function go(p){
   PAGE=p;
@@ -233,6 +254,7 @@ function go(p){
   document.getElementById("pageTitle").textContent=TITLES[p];
   clearInterval(SESS_TIMER);
   if(p==="dashboard"){renderDash();SESS_TIMER=setInterval(renderDash,10000);}
+  if(p==="projects")renderProjects();
   if(p==="accounts")renderAcct();
   if(p==="groups")renderGroups();
   if(p==="sessions"){renderSess();SESS_TIMER=setInterval(renderSess,5000);}
@@ -288,6 +310,87 @@ function trendSvg(trend){
   return svg+"</svg>";
 }
 
+/* ---------- 项目管理 ---------- */
+let PROJECTS=[];
+async function renderProjects(){
+  let list;
+  try{list=await api("GET","/projects");}catch(e){pageEl("projects").innerHTML=`<div class="card empty">${esc(e.message)}</div>`;return;}
+  PROJECTS=list;
+  const rows=list.map(p=>`<tr>
+    <td><b>${esc(p.name)}</b></td><td class="num">${esc(p.code)}</td>
+    <td class="num">${p.user_count}</td>
+    <td>${(p.admins||[]).map(a=>`<span class="badge b-blue">${esc(a)}</span>`).join(" ")||'<span style="color:var(--text-sec)">未分配</span>'}</td>
+    <td>${p.enabled?'<span class="badge b-green">🟢 启用</span>':'<span class="badge b-red">🔴 停用</span>'}</td>
+    <td style="white-space:nowrap">
+      <button class="btn sm" onclick="openProjEdit(${p.id})">编辑</button>
+      <button class="btn sm" onclick="openBindAdmins(${p.id})">分配管理员</button>
+      <button class="btn sm ${p.enabled?"danger":""}" onclick="toggleProj(${p.id},${p.enabled})">${p.enabled?"停用":"启用"}</button>
+    </td></tr>`).join("");
+  pageEl("projects").innerHTML=`
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h3 style="margin:0">项目列表</h3>
+        <button class="btn pri" onclick="openProjCreate()">＋ 新建项目</button></div>
+      <table><thead><tr><th>项目</th><th>标识</th><th>账号数</th><th>项目管理员</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="6" class="empty">暂无项目</td></tr>'}</tbody></table>
+      <div class="empty-hint">停用项目：该项目全部账号登录即时冻结，在线会话自动断开。项目归属调整请到 SFTP账号管理。</div>
+    </div>`;
+}
+function openProjCreate(){
+  modal(`<h3>新建项目</h3>
+    <label>项目名称<input id="np_n" placeholder="如：司法调证"></label>
+    <label>项目标识（小写/数字/-/_）<input id="np_c" placeholder="如：evidence"></label>
+    <label>备注<input id="np_r"></label>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+    <button class="btn" onclick="closeModal()">取消</button>
+    <button class="btn pri" onclick="submitProjCreate()">创建</button></div>`);
+}
+async function submitProjCreate(){
+  try{await api("POST","/projects",{name:np_n.value,code:np_c.value,remark:np_r.value});}
+  catch(e){toast("创建失败："+e.message);return;}
+  closeModal();toast("项目已创建");renderProjects();
+}
+function openProjEdit(id){
+  const p=PROJECTS.find(x=>x.id===id);if(!p)return;
+  modal(`<h3>编辑项目 · ${esc(p.name)}</h3>
+    <label>项目名称<input id="ep_n" value="${esc(p.name)}"></label>
+    <label>备注<input id="ep_r" value="${esc(p.remark||"")}"></label>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+    <button class="btn" onclick="closeModal()">取消</button>
+    <button class="btn pri" onclick="submitProjEdit(${p.id})">保存</button></div>`);
+}
+async function submitProjEdit(id){
+  try{await api("PATCH","/projects/"+id,{name:ep_n.value,remark:ep_r.value});}
+  catch(e){toast("保存失败："+e.message);return;}
+  closeModal();toast("已保存");renderProjects();
+}
+async function toggleProj(id,en){
+  const p=PROJECTS.find(x=>x.id===id);if(!p)return;
+  if(en&&!confirm(`确定停用项目「${p.name}」？\n该项目 ${p.user_count} 个账号登录将即时冻结，在线会话立即断开。`))return;
+  try{await api("PATCH","/projects/"+id,{enabled:!en});}
+  catch(e){toast("操作失败："+e.message);return;}
+  toast(en?"项目已停用":"项目已启用");renderProjects();
+}
+async function openBindAdmins(pid){
+  const p=PROJECTS.find(x=>x.id===pid);if(!p)return;
+  let ADM;try{ADM=await api("GET","/admins");}catch(e){toast(e.message);return;}
+  const pas=ADM.filter(a=>a.role==="project_admin");
+  if(!pas.length){toast("请先在后台账号管理创建 project_admin 角色账号");return;}
+  const cur=new Set(p.admins||[]);
+  modal(`<h3>分配项目管理员 · ${esc(p.name)}</h3>
+    ${pas.map(a=>`<label class="chk"><input type="checkbox" value="${a.id}" ${cur.has(a.username)?"checked":""}> ${esc(a.username)}（${esc(a.remark||"")}）</label>`).join("")}
+    <div class="empty-hint">仅 project_admin 角色可被分配；保存为全量覆盖</div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+    <button class="btn" onclick="closeModal()">取消</button>
+    <button class="btn pri" onclick="submitBind(${pid})">保存</button></div>`);
+}
+async function submitBind(pid){
+  const ids=[...document.querySelectorAll('#modal input:checked')].map(i=>+i.value);
+  try{await api("POST",`/projects/${pid}/admins`,{admin_ids:ids});}
+  catch(e){toast("保存失败："+e.message);return;}
+  closeModal();toast("已保存");renderProjects();
+}
+
 /* ---------- 账号管理 ---------- */
 async function renderAcct(){
   pageEl("accounts").innerHTML=`
@@ -321,6 +424,7 @@ async function loadUsers(){
                  u.max_sessions?`并发${u.max_sessions}`:""].filter(Boolean).join(" / ");
       return `<tr>
         <td><b>${esc(u.username)}</b><br><span style="color:var(--text-sec);font-size:12px">${esc(u.remark||"")}${lim?` · ${lim}`:""}</span></td>
+        <td>${u.project_id?`<span class="badge b-blue">${esc((PROJECTS.find(x=>x.id===u.project_id)||{}).name||("#"+u.project_id))}</span>`:'<span class="badge b-gray">未分配</span>'}</td>
         <td><span class="num" style="font-size:12px">${esc(u.root_dir)}</span></td>
         <td><span class="perm">${permSq(u)}</span></td>
         <td><span class="usage-bar"><i class="${cls}" style="width:${pct}%"></i></span><span class="num">${fmtB(u.used_bytes)}${u.quota_bytes?"/"+fmtB(u.quota_bytes):""}</span></td>
@@ -333,7 +437,7 @@ async function loadUsers(){
         </td></tr>`;
     }).join("");
     document.getElementById("ulist").innerHTML=rows?
-      `<table><thead><tr><th>用户名</th><th>根目录</th><th>权限（R/W/D/M）</th><th>配额使用</th><th>有效期</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`
+      `<table><thead><tr><th>用户名</th><th>项目</th><th>根目录</th><th>权限（R/W/D/M）</th><th>配额使用</th><th>有效期</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`
       :"无匹配账号";
     /* 加密路径卡片 */
     const wrows=USERS.map(u=>{
@@ -359,10 +463,15 @@ function permChk(u){return ["perm_read","perm_write","perm_delete","perm_rename"
   `<label class="chk"><input type="checkbox" id="f_${k}" ${u&&u[k]?"checked":""}>${
     {perm_read:"读取",perm_write:"写入",perm_delete:"删除",perm_rename:"改名"}[k]}</label>`).join("");}
 
-function openCreate(){
+async function openCreate(){
+  if(!PROJECTS.length&&!isPA()){try{PROJECTS=await api("GET","/projects")}catch(e){PROJECTS=[]}}
+  const projOpts=isPA()
+    ? MYPROJ.map(n=>{const p=PROJECTS.find(x=>x.name===n);return p?`<option value="${p.id}">${esc(n)}</option>`:""}).join("")
+    : `<option value="">（未分配）</option>`+PROJECTS.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join("");
   modal(`<h3>＋ 新建账号</h3>
     <div class="row"><div><label>用户名（小写字母/数字/下划线）</label><input id="f_username" type="text"></div>
     <div><label>初始密码（≥8位，含字母数字）</label><input id="f_password" type="password"></div></div>
+    <label>所属项目</label><select id="f_project" style="width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 12px">${projOpts}</select>
     <label>权限（读/写/删/改）</label><div class="perm" style="gap:14px">${permChk(null)}</div>
     <div class="row"><div><label>空间配额（MB，0=不限）</label><input id="f_quota" type="number" value="10240"></div>
     <div><label>单文件上限（MB，0=不限）</label><input id="f_maxfs" type="number" value="0"></div></div>
@@ -382,7 +491,8 @@ async function submitCreate(){
       perm_delete:f_perm_delete.checked,perm_rename:f_perm_rename.checked,
       quota_bytes:+f_quota.value*1048576,max_file_size:+f_maxfs.value*1048576,
       rate_up:+f_rup.value*1024,rate_down:+f_rdn.value*1024,max_sessions:+f_msess.value,
-      web_enabled:f_web.checked,remark:f_remark.value});
+      web_enabled:f_web.checked,remark:f_remark.value,
+      project_id:f_project.value?+f_project.value:null});
     closeModal();toast("账号已创建");loadUsers();
   }catch(e){alert("创建失败："+e.message);}
 }
@@ -397,6 +507,9 @@ function openEdit(id){
     <div><label>并发会话数（0=不限）</label><input id="e_msess" type="number" value="${u.max_sessions||0}"></div></div>
     <div class="row"><div><label>有效期至（留空=永久）</label><input id="e_exp" type="date" value="${u.expires_at?u.expires_at.slice(0,10):""}"></div>
     <div><label>备注</label><input id="e_remark" type="text" value="${esc(u.remark)}"></div></div>
+    ${!isPA()?`<label>所属项目（平台管理员可调整）</label><select id="e_project" style="width:100%;height:38px;border:1px solid var(--line);border-radius:9px;padding:0 12px">
+      <option value="">（未分配）</option>
+      ${PROJECTS.map(pp=>`<option value="${pp.id}" ${u.project_id===pp.id?"selected":""}>${esc(pp.name)}</option>`).join("")}</select>`:""}
     <label class="chk"><input type="checkbox" id="e_web" ${u.web_enabled?"checked":""}>允许 Web 加密路径访问</label>
     <div class="mfoot"><button class="btn" onclick="closeModal()">取消</button>
     <button class="btn pri" onclick="submitEdit(${id})">保存</button></div>`);
@@ -408,7 +521,8 @@ async function submitEdit(id){
       perm_delete:f_perm_delete.checked,perm_rename:f_perm_rename.checked,
       quota_bytes:+e_quota.value*1048576,max_file_size:+e_maxfs.value*1048576,
       rate_up:+e_rup.value*1024,rate_down:+e_rdn.value*1024,max_sessions:+e_msess.value,
-      expires_at:e_exp.value||null,remark:e_remark.value,web_enabled:e_web.checked});
+      expires_at:e_exp.value||null,remark:e_remark.value,web_enabled:e_web.checked,
+      ...(document.getElementById("e_project")?{project_id:e_project.value?+e_project.value:null}:{})});
     closeModal();toast("已保存");loadUsers();
   }catch(e){alert("保存失败："+e.message);}
 }

@@ -39,6 +39,7 @@ def init_db():
             ("rate_up", "BIGINT DEFAULT 0"),
             ("rate_down", "BIGINT DEFAULT 0"),
             ("max_sessions", "INT DEFAULT 0"),
+            ("project_id", "INT NULL"),
         ]
         with engine.begin() as conn:
             for name, ddl in migrations:

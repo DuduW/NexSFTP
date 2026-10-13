@@ -62,7 +62,7 @@ def admin_login(token: str):
     item = _admin_sessions.get(token)
     if item and item[1] > time.time():
         _admin_sessions[token] = (item[0], time.time() + SESSION_TTL)
-        return item[0] or True
+        return item[0] or None
     _admin_sessions.pop(token, None)
     return None
 
@@ -97,4 +97,8 @@ def web_logout(token: str):
 
 
 def utcnow() -> datetime:
-    return datetime.utcnow()
+    """服务器本地时间（Asia/Shanghai）。
+
+    历史名 utcnow 保留以减少调用点改动；v1.5 起审计/时间戳统一本地时区。
+    """
+    return datetime.now()

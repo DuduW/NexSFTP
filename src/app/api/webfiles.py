@@ -100,8 +100,10 @@ def web_login(body: dict, request: Request):
         u = s.query(SftpUser).filter_by(username=username, deleted_at=None).first()
         expired = bool(u and u.expires_at and
                        (u.expires_at if isinstance(u.expires_at, datetime) else
-                        datetime.strptime(str(u.expires_at), "%Y-%m-%d %H:%M:%S")) <= datetime.utcnow())
-        if not (u and u.enabled and u.web_enabled and not expired
+                        datetime.strptime(str(u.expires_at), "%Y-%m-%d %H:%M:%S")) <= datetime.now())
+        from ..sftp_server import project_disabled
+        proj_off = bool(u and project_disabled(u.project_id))
+        if not (u and u.enabled and u.web_enabled and not expired and not proj_off
                 and security.verify_password(password, u.password_hash)):
             state.record_fail(username)
             audit("web", username, "login", "认证失败（统一提示，不区分原因）", ip, result="deny")

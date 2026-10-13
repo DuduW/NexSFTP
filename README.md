@@ -2,7 +2,7 @@
 
 轻量级 SFTP 文件传输服务器：**标准 SFTP 协议（TCP 2022）+ HTTPS 风格 Web 文件访问 + 管理后台**，单进程双端口，虚拟账号体系，MySQL 8 / SQLite 双后端。
 
-![version](https://img.shields.io/badge/version-v1.4-blue) ![python](https://img.shields.io/badge/Python-3.11+-3776ab) ![os](https://img.shields.io/badge/OS-Rocky%20Linux%209-red) ![db](https://img.shields.io/badge/DB-MySQL%208%20%7C%20SQLite-orange)
+![version](https://img.shields.io/badge/version-v1.6-blue) ![python](https://img.shields.io/badge/Python-3.11+-3776ab) ![os](https://img.shields.io/badge/OS-Rocky%20Linux%209-red) ![db](https://img.shields.io/badge/DB-MySQL%208%20%7C%20SQLite-orange)
 
 ## 功能一览
 
@@ -10,6 +10,7 @@
 |------|------|
 | **SFTP 传输面** (:2022) | 标准 SFTP 协议（FileZilla / WinSCP / `sftp` 命令直连）；虚拟账号（不落 /etc/passwd）；应用层 chroot 目录隔离；读/写/删/改名四权限；空间/文件数/单文件三级配额；上传下载限速；并发会话数限制 |
 | **Web 文件访问** (/web/login) | 浏览器访问本人目录：列表/下载/上传/删除/改名；每用户固定 HMAC-SHA256 加密路径（真实路径零暴露）；权限与 SFTP 共享 |
+| **项目管理** | 多租户隔离：项目 CRUD / project_admin 三级角色 / 服务端 scope 强制过滤 / 停用即冻结+强断 |
 | **管理后台** (/admin) | 仪表盘（7 日趋势）/ SFTP 账号管理 / 后台账号管理（super_admin·admin 两级）/ 会话监控（强制断开）/ 审计日志（筛选+CSV 导出）/ 用户 Web 访问总览 |
 | **安全** | 登录防爆破（10 次锁 15 分钟）；三重加密路径校验；全部操作审计入库；systemd 沙箱加固（非 root 运行）；删除保护锁 |
 | **数据库** | MySQL 8（生产，utf8mb4，连接池自愈）/ SQLite（开发，零配置）环境变量一键切换 |
@@ -18,7 +19,7 @@
 
 ```bash
 # 1. 下载部署包（releases/ 目录）
-unzip sftpserver-v1.4-deploy-20261012.zip -d sftpserver
+unzip sftpserver-v1.6-deploy-20261013.zip -d sftpserver
 cd sftpserver/deploy
 
 # 2. 一键部署（自动装 MySQL 8 + 建库授权 + systemd + 防火墙）
@@ -43,7 +44,8 @@ sudo bash one-click.sh --db-pass YourPass --admin-port 80 --sftp-port 2022 --ski
 
 ```
 ├── releases/                          版本部署包
-│   ├── sftpserver-v1.4-deploy-20261012.zip   ← 最新（含 CHANGELOG）
+│   ├── sftpserver-v1.6-deploy-20261013.zip   ← 最新（含 CHANGELOG）
+│   ├── sftpserver-v1.4-deploy-20261012.zip
 │   └── sftpserver-v1.2-deploy-20261011.zip   历史版本
 ├── docs/
 │   ├── 安装使用说明.md                 部署 + 使用 + 运维手册
@@ -60,6 +62,7 @@ Python 3.11 + FastAPI + asyncssh 2.24 + SQLAlchemy + MySQL 8 / SQLite + 原生 J
 
 ## 版本历史
 
+- **v1.6**（2026-10-13）：项目管理与项目管理员（多租户隔离/三级角色/停用联动）、单文件上限硬拦、审计关联到人、时区统一东八区
 - **v1.4**（2026-10-12）：NexSFTP 品牌统一、GitHub 开源仓库与安装使用说明成文、发版流程固化
 - **v1.3**（2026-10-12）：MySQL 8 后端、用户组管理（super_admin/admin）、一键部署脚本、Web 文件页 UI 统一、审计 CSV 导出 + size_bytes 列、Linux SFTP 读 bug 修复、管理端口 80
 - **v1.2**（2026-10-11）：M1~M4 全量交付，三套测试 74 项通过
